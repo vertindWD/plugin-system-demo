@@ -12,8 +12,8 @@
 ## 目录说明
 
 - core/ : 核心接口定义
-- manager/ : 插件管理器（负责加载、调度、异常恢复）
-- plugins/filter/ : 一个模拟敏感词过滤、异常和耗时操作的业务插件
+- manager/ : 插件管理器
+- plugins/filter/ : 测试用插件
 - main.go : 调度测试入口
 
 ## 环境依赖
