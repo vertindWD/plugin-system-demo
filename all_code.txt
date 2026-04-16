@@ -1,0 +1,156 @@
+
+============================================================
+📁 File: ./plugins/filter/main.go
+============================================================
+package main
+
+import (
+	"fmt"
+)
+
+// FilterPlugin 具体的插件实现结构体
+type FilterPlugin struct{}
+
+func (f *FilterPlugin) Name() string {
+	return "TextFilter"
+}
+
+func (f *FilterPlugin) Version() string {
+	return "1.0.0"
+}
+
+// Run 里面只做最简单的打印测试，验证数据流转
+func (f *FilterPlugin) Run(data map[string]interface{}) (map[string]interface{}, error) {
+
+	fmt.Printf("1. 当前执行插件: %s (v%s)\n", f.Name(), f.Version())
+	fmt.Printf("2. 接收到的入参 map: %v\n", data)
+	data["filter_plugin_tested"] = "success"
+	return data, nil
+
+}
+
+var Plugin FilterPlugin
+
+============================================================
+📁 File: ./manager/manager.go
+============================================================
+package manager
+
+import (
+	"errors"
+	"fmt"
+	"plugin"
+	"plugin-system/core"
+	"sync"
+)
+
+type PluginManager struct {
+	plugins map[string]core.Plugin
+	mu      sync.RWMutex
+}
+
+// NewPluginManager 初始化管理器
+func NewPluginManager() *PluginManager {
+	return &PluginManager{
+		plugins: make(map[string]core.Plugin),
+	}
+}
+
+// LoadPlugin 动态加载指定的 .so 插件文件
+func (pm *PluginManager) LoadPlugin(soPath string) error {
+	// 1. 打开 .so 文件
+	p, err := plugin.Open(soPath)
+	if err != nil {
+		return fmt.Errorf("打开插件文件失败: %v", err)
+	}
+
+	// 2. 查找导出的符号 (固定查找名为 "Plugin" 的变量)
+	sym, err := p.Lookup("Plugin")
+	if err != nil {
+		return fmt.Errorf("未找到导出的 Plugin 符号: %v", err)
+	}
+
+	// 3. 类型断言
+	pl, ok := sym.(core.Plugin)
+	if !ok {
+		return errors.New("导出的符号未实现 core.Plugin 接口")
+	}
+
+	// 4. 注册到管理器的 Map 中
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.plugins[pl.Name()] = pl
+
+	fmt.Printf("成功加载插件: %s (v%s)\n", pl.Name(), pl.Version())
+	return nil
+}
+
+// Execute 执行指定名称的插件
+func (pm *PluginManager) Execute(pluginName string, input map[string]interface{}) (map[string]interface{}, error) {
+	pm.mu.RLock()
+	pl, exists := pm.plugins[pluginName]
+	pm.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("插件 %s 未加载或不存在", pluginName)
+	}
+
+	// 执行并返回结果
+	return pl.Run(input)
+}
+
+============================================================
+📁 File: ./go.mod
+============================================================
+module plugin-system
+
+go 1.25.0
+
+============================================================
+📁 File: ./core/plugin.go
+============================================================
+package core
+
+type Plugin interface {
+	Name() string
+	Version() string
+	Run(data map[string]interface{}) (map[string]interface{}, error)
+}
+
+============================================================
+📁 File: ./main.go
+============================================================
+package main
+
+import (
+	"fmt"
+	"log"
+	"plugin-system/manager"
+)
+
+func main() {
+	// 1. 初始化管理器
+	pm := manager.NewPluginManager()
+
+	// 2. 加载插件
+	err := pm.LoadPlugin("./plugins/filter/filter.so")
+	if err != nil {
+		log.Fatalf("加载插件失败: %v\n", err)
+	}
+
+	// 3. 测试
+	inputData := map[string]interface{}{
+		"data": "test",
+	}
+	fmt.Printf("原始数据: %v\n", inputData)
+
+	// 4. 执行插件
+	outputData, err := pm.Execute("TextFilter", inputData)
+	if err != nil {
+		log.Printf("插件执行出错: %v\n", err)
+		return
+	}
+
+	// 5. 输出结果
+	fmt.Printf("执行结果: %v\n", outputData)
+}
